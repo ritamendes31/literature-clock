@@ -1,9 +1,11 @@
 // Bump VERSION whenever any cached file changes so clients pick up the new copy.
-const VERSION = 'v2';
+const VERSION = 'v3';
 const FILES = ['./', 'index.html', 'quotes.json', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(VERSION).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));
+  // 'reload' skips the browser's HTTP cache, which would otherwise hand back the previous version.
+  const requests = FILES.map(f => new Request(f, { cache: 'reload' }));
+  event.waitUntil(caches.open(VERSION).then(cache => cache.addAll(requests)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {
@@ -20,7 +22,7 @@ self.addEventListener('fetch', event => {
   event.respondWith(
     caches.open(VERSION).then(cache =>
       cache.match(event.request, { ignoreSearch: true }).then(cached => {
-        const network = fetch(event.request)
+        const network = fetch(event.request, { cache: 'no-cache' })
           .then(response => { if (response.ok) cache.put(event.request, response.clone()); return response; })
           .catch(() => cached);
         return cached || network;
