@@ -1,5 +1,5 @@
 // Bump VERSION whenever any cached file changes so clients pick up the new copy.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const FILES = ['./', 'index.html', 'quotes.json', 'manifest.json', 'icon.svg', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', event => {
