@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Literature Clock</title>
+<meta name="description" content="The time, told by a line from a book.">
+<meta name="theme-color" content="#f6f1e7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#16140f" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lit Clock">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root {
+    --bg: #f6f1e7;
+    --ink: #2b2620;
+    --muted: #857a6a;
+    --accent: #a4441f;
+    --mark-bg: transparent;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16140f;
+      --ink: #e9e2d4;
+      --muted: #8f8676;
+      --accent: #e58a5c;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-serif, "New York", "Iowan Old Style", Georgia, "Times New Roman", serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex;
+    flex-direction: column;
+    padding: max(24px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right))
+             max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  figure {
+    margin: 0;
+    max-width: 38rem;
+    width: 100%;
+    transition: opacity .6s ease;
+  }
+  figure.fading { opacity: 0; }
+  blockquote {
+    margin: 0;
+    font-size: var(--size, 1.6rem);
+    line-height: 1.42;
+    text-wrap: pretty;
+  }
+  blockquote p { margin: 0 0 .6em; }
+  blockquote p:last-child { margin-bottom: 0; }
+  mark {
+    background: var(--mark-bg);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  figcaption {
+    margin-top: 1.4rem;
+    font-size: 1rem;
+    color: var(--muted);
+    font-family: ui-sans-serif, -apple-system, system-ui, sans-serif;
+    letter-spacing: .01em;
+  }
+  figcaption cite { font-style: italic; font-family: ui-serif, Georgia, serif; }
+  .approx {
+    display: block;
+    margin-top: .4rem;
+    font-size: .85rem;
+  }
+  footer {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    font-family: ui-sans-serif, -apple-system, system-ui, sans-serif;
+    font-size: .8rem;
+    color: var(--muted);
+  }
+  footer .clock { font-variant-numeric: tabular-nums; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <figure id="card">
+    <blockquote id="quote"><p>Loading…</p></blockquote>
+    <figcaption id="caption"></figcaption>
+  </figure>
+</main>
+<footer>
+  <span class="clock" id="clock"></span>
+  <span>Tap for another · <a href="https://github.com/JohsEnevoldsen/literature-clock" target="_blank" rel="noopener" onclick="event.stopPropagation()">quotes: CC BY-NC-SA</a></span>
+</footer>
+<script>
+(() => {
+  const quoteEl = document.getElementById('quote');
+  const captionEl = document.getElementById('caption');
+  const card = document.getElementById('card');
+  const clockEl = document.getElementById('clock');
+  let quotes = null;
+  let shownKey = null;
+  let lastIndex = -1;
+  let timer = null;
+
+  const pad = n => String(n).padStart(2, '0');
+  const keyFor = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+
+  // Walk back minute by minute until we find one that has quotes (31 minutes have none).
+  function findEntries(date) {
+    const d = new Date(date);
+    for (let i = 0; i < 1440; i++) {
+      const k = keyFor(d);
+      if (quotes[k]) return { key: k, entries: quotes[k], exact: i === 0 };
+      d.setMinutes(d.getMinutes() - 1);
+    }
+    return null;
+  }
+
+  // Quotes are third-party text: build DOM nodes rather than injecting HTML.
+  function renderQuote(text, timeString) {
+    quoteEl.replaceChildren();
+    const needle = timeString.toLowerCase();
+    let highlighted = false;
+    for (const para of text.split(/<br\s*\/?>/i)) {
+      const p = document.createElement('p');
+      const at = highlighted ? -1 : para.toLowerCase().indexOf(needle);
+      if (at >= 0 && needle) {
+        const mark = document.createElement('mark');
+        mark.textContent = para.slice(at, at + needle.length);
+        p.append(para.slice(0, at), mark, para.slice(at + needle.length));
+        highlighted = true;
+      } else {
+        p.textContent = para;
+      }
+      quoteEl.append(p);
+    }
+    // Shrink long passages so they still fit on a phone screen.
+    const len = text.length;
+    const size = len < 120 ? 2.1 : len < 250 ? 1.75 : len < 450 ? 1.45 : len < 700 ? 1.2 : 1.05;
+    quoteEl.style.setProperty('--size', size + 'rem');
+  }
+
+  function show(forceNew) {
+    const now = new Date();
+    clockEl.textContent = keyFor(now);
+    const found = findEntries(now);
+    if (!found) return;
+    if (found.key === shownKey && !forceNew) return;
+
+    let i = Math.floor(Math.random() * found.entries.length);
+    if (forceNew && found.key === shownKey && found.entries.length > 1 && i === lastIndex) {
+      i = (i + 1) % found.entries.length;
+    }
+    const [text, timeString, title, author] = found.entries[i];
+
+    card.classList.add('fading');
+    setTimeout(() => {
+      renderQuote(text, timeString);
+      captionEl.replaceChildren('— ', author, ', ');
+      const cite = document.createElement('cite');
+      cite.textContent = title;
+      captionEl.append(cite);
+      if (!found.exact) {
+        const note = document.createElement('span');
+        note.className = 'approx';
+        note.textContent = 'No quote for this exact minute; showing ' + found.key + '.';
+        captionEl.append(note);
+      }
+      card.classList.remove('fading');
+    }, shownKey ? 400 : 0);
+
+    shownKey = found.key;
+    lastIndex = i;
+  }
+
+  // Tick on the minute boundary instead of polling every second.
+  function schedule() {
+    clearTimeout(timer);
+    const now = new Date();
+    const ms = (60 - now.getSeconds()) * 1000 - now.getMilliseconds() + 50;
+    timer = setTimeout(() => { show(false); schedule(); }, ms);
+  }
+
+  document.body.addEventListener('click', () => show(true));
+  // Timers are paused while the app is in the background on iOS; catch up on return.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && quotes) { show(false); schedule(); }
+  });
+
+  fetch('quotes.json')
+    .then(r => r.json())
+    .then(data => { quotes = data; show(false); schedule(); })
+    .catch(() => { quoteEl.textContent = 'Could not load the quotes. Check your connection and reload.'; });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+})();
+</script>
+</body>
+</html>
